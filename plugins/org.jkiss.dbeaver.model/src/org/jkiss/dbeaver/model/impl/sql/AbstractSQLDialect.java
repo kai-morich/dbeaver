@@ -353,15 +353,19 @@ public abstract class AbstractSQLDialect implements SQLDialect {
 
     @Override
     public boolean isQuotedIdentifier(String identifier) {
-        {
-            final String[][] quoteStrings = this.getIdentifierQuoteStrings();
-            if (ArrayUtils.isEmpty(quoteStrings)) {
-                return false;
-            }
-            for (String[] quoteString : quoteStrings) {
-                if (identifier.startsWith(quoteString[0]) && identifier.endsWith(quoteString[1])) {
-                    return true;
-                }
+        final String[][] quoteStrings = this.getIdentifierQuoteStrings();
+        if (ArrayUtils.isEmpty(quoteStrings)) {
+            return false;
+        }
+        for (String[] quoteString : quoteStrings) {
+            if (identifier.startsWith(quoteString[0]) && identifier.endsWith(quoteString[1])) {
+                // If identifier without surrounding quotes shouldn't be quoted,
+                // then these quotes are the part of the identifier itself.
+                //
+                // This statement assumes that not a single living creature
+                // would both surround identifier with quotes and use
+                // characters that are non-valid part of an identifier.
+                return shouldQuoteIdentifier(identifier.substring(1, identifier.length() - 1), true, false);
             }
         }
         return false;
@@ -377,7 +381,14 @@ public abstract class AbstractSQLDialect implements SQLDialect {
         if (ArrayUtils.isEmpty(quoteStrings)) {
             return str;
         }
+        if (!shouldQuoteIdentifier(str, forceCaseSensitive, forceQuotes)) {
+            return str;
+        }
 
+        return quoteIdentifier(str, quoteStrings);
+    }
+
+    protected boolean shouldQuoteIdentifier(@NotNull String str, boolean forceCaseSensitive, boolean forceQuotes) {
         // Check for keyword conflict
         final DBPKeywordType keywordType = this.getKeywordType(str);
         boolean hasBadChars = forceQuotes ||
@@ -414,17 +425,18 @@ public abstract class AbstractSQLDialect implements SQLDialect {
                 }
             }
         }
-        if (!hasBadChars) {
-            return str;
-        }
 
+        return hasBadChars;
+    }
+
+    @NotNull
+    protected String quoteIdentifier(@NotNull String str, @NotNull String[][] quoteStrings) {
         // Escape quote chars
-        for (int i = 0; i < quoteStrings.length; i++) {
-            String q1 = quoteStrings[i][0], q2 = quoteStrings[i][1];
-            if (q1.equals(q2) && (q1.equals("\"") || q1.equals("'"))) {
-                if (str.contains(q1)) {
-                    str = str.replace(q1, q1 + q1);
-                }
+        for (String[] pair : quoteStrings) {
+            final String q1 = pair[0];
+            final String q2 = pair[1];
+            if (q1.equals(q2) && (q1.equals("\"") || q1.equals("'")) && str.contains(q1)) {
+                str = str.replace(q1, q1 + q1);
             }
         }
         // Escape with first (default) quote string
